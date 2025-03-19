@@ -119,10 +119,8 @@ class EurostatScraper:
             print(f"Errore nel trovare il div iniziale: {e}")
             return
 
-        # Trova le categorie di navigazione principali
         navigation_categories = divisione.find_elements(By.TAG_NAME, 'navigation-category')
 
-        # Espandere tutte le categorie
         for category in navigation_categories:
             self.expand_all_categories(driver, category)
 
@@ -130,45 +128,49 @@ class EurostatScraper:
         queue = [root_element]  # Inizializza la coda con l'elemento principale
 
         while queue:
-            current_element = queue.pop(0)
-            span = current_element.find_element(By.TAG_NAME, 'span').text
-            print("Elemento 0", span)
+            current_element = queue.pop(0)  # Prendi il primo elemento dalla coda
+            
+            # Trova il testo all'interno di 'span'
+            try:
+                span = current_element.find_element(By.TAG_NAME, 'span').text
+                print("Elemento 0:", span)
+            except Exception as e:
+                print(f"Errore nell'estrarre il testo dal 'span': {e}")
+                continue
+            
+            # if current_element == 
+            # Trova i bottoni che non sono ancora espansi
             buttons = current_element.find_elements(By.CSS_SELECTOR, 'a[role="button"][aria-expanded="false"]')
+            
             for button in buttons:
                 try:
                     spans = button.find_element(By.TAG_NAME, 'span').text
-
                     print(f"Testo nel bottone: {spans}")
+                    
+                    # Fai clic sul bottone
+                    driver.execute_script("arguments[0].scrollIntoView();", button)  # Scrolla fino al bottone
+                    driver.execute_script("arguments[0].click();", button)  # Clicca sul bottone
+
+                    time.sleep(2)
+
+                    # Trova i nuovi bottoni e le nuove categorie che sono visibili dopo il clic
+                    new_buttons = current_element.find_elements(By.CSS_SELECTOR, 'a[role="button"][aria-expanded="false"]')
+                    for new_button in new_buttons:
+                        # Aggiungi i nuovi bottoni alla coda per essere cliccati
+                        queue.append(new_button)
+                        new_span = new_button.find_element(By.TAG_NAME, 'span').text
+                        print(f"Nuovo bottone trovato: {new_span}")
+
+                    # # Trova nuove categorie di navigazione
+                    # new_categories = driver.find_elements(By.TAG_NAME, 'navigation-category')  # Cerca globalmente
+                    # for new_category in new_categories:
+                    #     queue.append(new_category)
+                    
+                    # print(f"Espanso {len(new_categories)} nuove categorie")
 
                 except Exception as e:
-                    print(f"Errore nell'estrarre il testo dal bottone: {e}")
-            for button in buttons:
-                spans = button.find_element(By.TAG_NAME, 'span').text
-
-                print(f"Testo nel bottone: {spans}")
-                try:
-                    driver.execute_script("arguments[0].scrollIntoView();", button)  # Scorri fino al bottone
-                    try:
-                        driver.execute_script("arguments[0].click();", button)
-
-                    except Exception as e:
-                        print(f"Errore durante il click sul bottone: {e}")
-                    
-                    # Attendi fino a quando i nuovi elementi appaiono
-                    WebDriverWait(driver, 0.5).until(
-                        EC.presence_of_element_located((By.TAG_NAME, 'navigation-category'))
-                    )
-
-                    # Dopo il clic, cerchiamo se ci sono nuove categorie visibili
-                    new_categories = driver.find_elements(By.TAG_NAME, 'navigation-category')  # Cerca globalmente
-                    for new_categorie in new_categories:
-                        queue.extend(new_categorie)
-                    # Aggiungiamo le nuove categorie alla coda per esplorazione futura
-                    
-                    print(f"Espanso {len(new_categories)} nuove categorie")
-
-                except Exception as e:
-                    print(f"Errore cliccando sul bottone: {e}")
+                    print(f"Errore durante il clic sul bottone: {e}")
+            
 
             
 if __name__ == "__main__":
