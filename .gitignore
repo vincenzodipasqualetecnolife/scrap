@@ -2,3 +2,5 @@
 envr/
 old/
 tests/
+categories_structure.json
+.env

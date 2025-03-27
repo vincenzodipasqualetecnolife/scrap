@@ -8,7 +8,12 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from bs4 import BeautifulSoup
+
 class EurostatScraper:
+    def __init__(self):
+        self.aria_getter = 'a[role="button"][aria-expanded="false"]'
+        self.structure = {}
     
     def set_up_driver(self):
         """
@@ -34,46 +39,82 @@ class EurostatScraper:
         """
         Estrae i pulsanti delle categorie da un elemento di navigazione.
         """
-        return navigation.find_elements(By.CSS_SELECTOR, 'a[role="button"][aria-expanded="false"]')
+        return navigation.find_elements(By.CSS_SELECTOR, f'{self.aria_getter}')
 
-    def expand_category(self, driver, button):
+    def expand_category(self, driver, nav_id, buttons):
         """
         Espande una categoria facendo clic sul pulsante corrispondente.
         """
     
-        stack = [button]
+        stack = []
+        stacked = set()
+
+        for b in buttons:
+            bid = b.get_attribute("id")
+            stack.append(b)
+            stacked.add(bid)
+            self.structure[nav_id][bid] = {}
+            
+        clicked = set()
 
         while stack:
             # Prendi la cartella in cima allo stack (l'ultimo aggiunto)
-            current_button = stack.pop()    
+            current_button = stack.pop(0)
+            
+            span = current_button.find_element(By.TAG_NAME, 'span').text
+            button_id = current_button.get_attribute("id")
+                
+
+            if button_id in clicked:
+                continue
+            clicked.add(button_id)
+
             try:
 
                 try:
-                    span = current_button.find_element(By.TAG_NAME, 'span').text
-                    driver.execute_script("arguments[0].click();", button)
+                    driver.execute_script("arguments[0].click();", current_button)
                     print(f"Categoria espansa: {span}")
                 except Exception as e:
                     print(f"Errore nel cliccare sulla categoria {span}: {e}")
 
+                time.sleep(0.1)
 
                 shadow_host = driver.find_element(By.TAG_NAME, "navigation-full-tree")
                 shadow_root = shadow_host.shadow_root
                 tree = shadow_root.find_element(By.CLASS_NAME, "tree")
                 children_open = tree.find_element(By.CSS_SELECTOR, "div.children.open")
+
                 navigations = children_open.find_elements(By.XPATH, "./*")
 
-
-                # Elenco degli elementi nella cartella corrente
+                current_navigation = None
                 for navigation in navigations:
-                    if navigation:  # Se è una cartella, aggiungila allo stack
-                        buttons = navigation.find_elements(By.CSS_SELECTOR, 'a[role="button"][aria-expanded="false"]')
-                        for button in buttons:
-                            stack.append(button)  # Aggiungi la cartella allo stack per esplorarla dopo
-                    else:  # Se è un file, lo stampiamo (o lo gestiamo come necessario)
-                        print(f" - Navigation category non trovata")
-            except PermissionError:
+                    a_nav = navigation.find_element(By.TAG_NAME, "a")
+                    id = a_nav.get_attribute("id")
+
+                    if id == nav_id:
+                        current_navigation = navigation
+                        break
+
+
+                bs = current_navigation.find_elements(By.CSS_SELECTOR, f'{self.aria_getter}')
+                index = 0
+                for button in bs:
+                        b_id = button.get_attribute("id")
+                        if b_id not in stacked and b_id not in clicked:
+                            stack.insert(index, button)  # Aggiungi il button all'inizio dello stack
+                            index += 1
+
+                            stacked.add(b_id)
+                            self.structure[nav_id][button_id] = {b_id : b_id}
+            
+                print(f"Stack: {len(stack)}")
+                self.save_structure_to_json()
+                            
+
+            except Exception as e:
                 # Gestire eventuali permessi negati per accedere a certe cartelle
-                print(f"Permesso negato per accedere a: {current_button}")
+                print(f"Errore {e} {current_button}")
+        
 
     def handle_navigation(self, driver, tree):
         """
@@ -82,12 +123,45 @@ class EurostatScraper:
         children_open = tree.find_element(By.CSS_SELECTOR, "div.children.open")
         navigations = children_open.find_elements(By.XPATH, "./*")
         
+
         for navigation in navigations:
+            a_nav = navigation.find_element(By.TAG_NAME, "a")
+            nav_id = a_nav.get_attribute("id")
+
+            self.structure[nav_id] = {}
+
             buttons = self.get_category_buttons(navigation)
             
-            for button in buttons:
-                self.expand_category(driver, button)
+            self.expand_category(driver, nav_id, buttons)
 
+            
+    # def save_full_html(self, driver):
+    #     shadow_host = driver.find_element(By.TAG_NAME, "navigation-full-tree")
+    #     shadow_root = shadow_host.shadow_root
+    #     tree = shadow_root.find_element(By.CLASS_NAME, "tree")
+    #     children_open = tree.find_element(By.CSS_SELECTOR, "div.children.open")
+       
+    #     html_sotto_span = children_open.get_attribute('outerHTML')
+
+    #     # Ora puoi usare BeautifulSoup per analizzare l'HTML
+    #     soup = BeautifulSoup(html_sotto_span, 'html.parser')
+
+    #     with open("output.txt", "w", encoding="utf-8") as file:
+    #         file.write(soup.prettify())
+
+    def save_structure_to_json(self, filename="categories_structure.json"):
+        """
+        Salva la struttura delle categorie (self.structure) in un file JSON.
+        """
+        try:
+            # Scrive il dizionario 'self.structure' in un file JSON
+            with open(filename, "w", encoding="utf-8") as json_file:
+                json.dump(self.structure, json_file, ensure_ascii=False, indent=4)
+            print(f"Struttura salvata correttamente in {filename}")
+        except Exception as e:
+            print(f"Errore durante il salvataggio della struttura in JSON: {e}")
+
+        
     def run(self):
         """
         Funzione principale che esegue il processo di scraping.
@@ -104,10 +178,12 @@ class EurostatScraper:
 
             # Gestisci la navigazione e l'espansione delle categorie
             self.handle_navigation(driver, tree)
+            # self.save_full_html(driver)
+
 
         finally:
             # Chiudi il driver dopo l'esecuzione
-            driver.quit()
+            input("ciao")
 
 if __name__ == "__main__":
     mef = EurostatScraper()
